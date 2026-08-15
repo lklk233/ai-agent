@@ -1,0 +1,50 @@
+# ============================================================
+# Git 忽略规则：本地考古学文献梳理 AI-Agent
+# ============================================================
+
+# ---- 环境变量与密钥（绝不提交）----
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.secret
+
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+dist/
+build/
+.pytest_cache/
+.mypy_cache/
+
+# ---- 用户数据（论文、数据库、索引、日志、调研产物）----
+data/papers/
+data/index/
+data/ocr_cache/
+data/vector_store/
+
+# ---- 临时与测试产物 ----
+.tmp/
+.test_tmp/
+pip-*
+*.log
+*.tmp
+_dl_test/
+
+# ---- IDE 与编辑器 ----
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# ---- Paper-Agent 参考源码（本地下载的副本，不提交）----
+_pa_fetch/
+
+# ---- 系统文件 ----
+Thumbs.db
+.DS_Store
+desktop.ini

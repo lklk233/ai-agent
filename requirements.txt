@@ -1,0 +1,8 @@
+# 本地考古学文献梳理 AI-Agent 依赖
+# 安装命令：pip install -r requirements.txt
+# 注：numpy/scipy 随 scikit-learn 自动安装
+
+jieba>=0.42.1          # 中文分词（TF-IDF 基础）
+charset_normalizer>=3.3.2   # 修复 pdfplumber 缺失依赖
+scikit-learn>=1.5.0    # TfidfVectorizer + KMeans（带 numpy/scipy）
+networkx>=3.3          # 图构建与中心性分析（轻量纯 Python）
