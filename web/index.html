@@ -1,0 +1,882 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>考古学文献关系图谱 · 3D</title>
+<style>
+  :root {
+    --bg: #0d1117; --panel: #161b22; --border: #30363d;
+    --text: #e6edf3; --dim: #8b949e; --accent: #58a6ff;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: var(--bg); color: var(--text); font-family: "Microsoft YaHei", "PingFang SC", sans-serif; }
+  #canvas { display: block; width: 100%; height: 100%; cursor: grab; }
+  #canvas.dragging { cursor: grabbing; }
+
+  /* 顶部工具栏 */
+  #toolbar { position: fixed; top: 0; left: 0; right: 0; height: 48px; display: flex; align-items: center; gap: 10px; padding: 0 14px; background: rgba(22,27,34,0.92); border-bottom: 1px solid var(--border); z-index: 100; }
+  #toolbar .title { font-weight: 600; font-size: 15px; white-space: nowrap; }
+  #toolbar .title small { color: var(--dim); font-weight: 400; margin-left: 6px; }
+  #searchBox { flex: 1; max-width: 320px; background: var(--bg); border: 1px solid var(--border); color: var(--text); border-radius: 6px; padding: 6px 10px; outline: none; }
+  #searchBox:focus { border-color: var(--accent); }
+  #toolbar button { background: #21262d; color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 6px 12px; cursor: pointer; font-size: 13px; white-space: nowrap; }
+  #toolbar button:hover { background: #30363d; }
+  #toolbar button.primary { background: #238636; border-color: #2ea043; }
+  #toolbar button.primary:hover { background: #2ea043; }
+  #toolbar select { background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; font-size: 13px; max-width: 200px; outline: none; cursor: pointer; }
+  #toolbar .spacer { flex: 1; }
+  #toolbar .legend { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--dim); flex-wrap: wrap; }
+  #toolbar .legend .dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+
+  /* 状态提示 */
+  #status { position: fixed; bottom: 12px; left: 12px; background: rgba(22,27,34,0.9); border: 1px solid var(--border); border-radius: 6px; padding: 6px 10px; font-size: 12px; color: var(--dim); z-index: 100; max-width: 60vw; }
+
+  /* 详情面板 */
+  #detail { position: fixed; top: 60px; right: 14px; width: 380px; max-height: calc(100vh - 120px); overflow-y: auto; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 16px; z-index: 100; display: none; box-shadow: 0 8px 24px rgba(0,0,0,0.5); }
+  #detail h3 { font-size: 16px; margin-bottom: 4px; line-height: 1.4; }
+  #detail .sub { color: var(--dim); font-size: 12px; margin-bottom: 10px; }
+  #detail .field { margin-bottom: 8px; font-size: 13px; }
+  #detail .field b { color: var(--dim); font-weight: 500; margin-right: 6px; }
+  #detail textarea { width: 100%; min-height: 70px; background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 8px; font-size: 13px; resize: vertical; font-family: inherit; }
+  #detail .status-row { display: flex; align-items: center; gap: 6px; margin: 10px 0; flex-wrap: wrap; }
+  #detail .status-row button { padding: 3px 10px; font-size: 12px; border-radius: 12px; border: 1px solid var(--border); background: transparent; color: var(--dim); cursor: pointer; }
+  #detail .status-row button.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+  #detail .actions { display: flex; gap: 8px; margin-top: 10px; }
+  #detail .close { position: absolute; top: 10px; right: 12px; background: none; border: none; color: var(--dim); font-size: 18px; cursor: pointer; }
+  #detail .related { margin-top: 10px; font-size: 13px; }
+  #detail .related div { padding: 4px 0; border-bottom: 1px dashed var(--border); color: var(--accent); cursor: pointer; }
+
+  /* 问答面板 */
+  #qa { position: fixed; bottom: 60px; right: 14px; width: 380px; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; z-index: 100; display: none; box-shadow: 0 8px 24px rgba(0,0,0,0.5); }
+  #qa .qa-head { padding: 10px 14px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; font-weight: 600; font-size: 14px; }
+  #qa .qa-body { max-height: 300px; overflow-y: auto; padding: 10px 14px; font-size: 13px; line-height: 1.7; white-space: pre-wrap; }
+  #qa .qa-input { display: flex; gap: 8px; padding: 10px 14px; border-top: 1px solid var(--border); }
+  #qa .qa-input input { flex: 1; background: var(--bg); border: 1px solid var(--border); color: var(--text); border-radius: 6px; padding: 7px 10px; outline: none; }
+  #qa .qa-input button { background: var(--accent); color: #fff; border: none; border-radius: 6px; padding: 7px 14px; cursor: pointer; }
+  #qa.loading .qa-body::after { content: "⏳ 生成中..."; color: var(--dim); }
+
+  /* 空状态 */
+  #empty { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; z-index: 50; background: rgba(13,17,23,0.6); }
+  #empty .box { text-align: center; color: var(--dim); }
+  #empty .box h2 { color: var(--text); margin-bottom: 12px; }
+  #empty .box p { margin-bottom: 18px; }
+  #empty .box button { background: var(--accent); color: #fff; border: none; border-radius: 8px; padding: 10px 22px; font-size: 15px; cursor: pointer; }
+
+  /* AI 调研工作台 */
+  #research { position: fixed; inset: 54px 0 0 0; background: var(--bg); z-index: 90; display: none; overflow: hidden; }
+  #research .r-head { display: flex; justify-content: space-between; align-items: center; padding: 10px 18px; background: var(--panel); border-bottom: 1px solid var(--border); font-weight: 600; }
+  #research .r-head .close { background: none; border: none; color: var(--dim); font-size: 18px; cursor: pointer; }
+  #research .r-body { padding: 16px 18px; height: 100%; overflow-y: auto; }
+  #research .r-create { display: flex; gap: 10px; max-width: 860px; }
+  #research .r-create input { flex: 1; background: var(--panel); color: var(--text); border: 1px solid var(--border); border-radius: 8px; padding: 10px 14px; font-size: 14px; outline: none; }
+  #research .r-create input:focus { border-color: var(--accent); }
+  #research .r-create button { background: var(--accent); color: #fff; border: none; border-radius: 8px; padding: 10px 20px; font-size: 14px; cursor: pointer; white-space: nowrap; }
+  #research .r-hint { color: var(--dim); font-size: 12px; margin: 10px 0 18px; max-width: 860px; line-height: 1.6; }
+  #research .r-tasks { display: flex; flex-direction: column; gap: 10px; max-width: 860px; }
+  .r-task { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; cursor: pointer; }
+  .r-task:hover { border-color: var(--accent); }
+  .r-task .t-title { font-weight: 600; font-size: 14px; margin-bottom: 6px; }
+  .r-task .t-meta { color: var(--dim); font-size: 12px; display: flex; gap: 14px; flex-wrap: wrap; }
+  .r-task .t-status { font-size: 12px; padding: 2px 10px; border-radius: 10px; display: inline-block; margin-left: auto; }
+  .t-status.done { background: rgba(46,160,67,0.2); color: #3fb950; }
+  .t-status.running { background: rgba(88,166,255,0.2); color: var(--accent); }
+  .t-status.error, .t-status.cancelled { background: rgba(248,81,73,0.2); color: #f85149; }
+  .t-status.pending { background: rgba(139,148,158,0.15); color: var(--dim); }
+  /* 详情视图 */
+  #research .r-detail { position: absolute; inset: 0; background: var(--bg); display: none; overflow-y: auto; padding: 18px; }
+  #research .r-detail-head { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
+  #research .r-detail-head h3 { font-size: 17px; flex: 1; }
+  #research .r-detail-head button { background: var(--panel); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 6px 12px; cursor: pointer; }
+  #research .r-progress { display: flex; flex-direction: column; gap: 8px; margin-bottom: 20px; }
+  .r-step { display: flex; align-items: center; gap: 10px; padding: 9px 12px; background: var(--panel); border: 1px solid var(--border); border-radius: 8px; font-size: 13px; }
+  .r-step .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--dim); flex-shrink: 0; }
+  .r-step.done .dot { background: #3fb950; }
+  .r-step.active .dot { background: var(--accent); animation: pulse 1s infinite; }
+  .r-step.error .dot { background: #f85149; }
+  .r-step .msg { color: var(--dim); font-size: 12px; }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
+  #research .r-output { max-width: 900px; }
+  #research .r-output h4 { margin: 18px 0 8px; color: var(--accent); }
+  #research .r-output pre { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 14px; white-space: pre-wrap; font-family: inherit; font-size: 13px; line-height: 1.8; }
+  #research .r-output .sec { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 14px; margin-bottom: 10px; }
+  #research .r-output .sec h5 { margin-bottom: 8px; color: var(--text); }
+  #research .r-output .sec p { font-size: 13px; line-height: 1.8; color: var(--text); }
+  #research .r-papers { display: flex; flex-wrap: wrap; gap: 8px; }
+  #research .r-paper { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px; font-size: 12px; }
+
+  @media (max-width: 900px) {
+    #detail, #qa { width: calc(100vw - 28px); }
+    #toolbar .legend { display: none; }
+  }
+</style>
+</head>
+<body>
+<canvas id="canvas"></canvas>
+
+<div id="toolbar">
+  <span class="title">📚 考古学文献图谱<small id="nodeCount"></small></span>
+  <input id="searchBox" type="text" placeholder="搜索论文标题 / 关键词…" autocomplete="off">
+  <button id="btnRelayout" title="重新计算力导向布局">重新布局</button>
+  <button id="btnQA">💬 智能问答</button>
+  <button id="btnResearch" class="primary" title="多智能体文献调研工作台">🤖 AI 调研</button>
+  <label for="modelSelect" style="font-size:12px;color:var(--dim);white-space:nowrap">模型</label>
+  <select id="modelSelect" title="选择 Ollama 推理模型（切换后立即生效并持久化）"></select>
+  <span class="spacer"></span>
+  <span class="legend">
+    <span><span class="dot" style="background:#ff6b6b"></span>相似</span>
+    <span><span class="dot" style="background:#feca57"></span>引用</span>
+  </span>
+  <button id="btnRefresh">🔄 刷新</button>
+</div>
+
+<div id="detail">
+  <button class="close" id="detailClose">✕</button>
+  <h3 id="dTitle"></h3>
+  <div class="sub" id="dSub"></div>
+  <div class="field"><b>关键词</b><span id="dKeywords"></span></div>
+  <div class="field"><b>摘要</b><span id="dSummary"></span></div>
+  <div class="field"><b>主题</b><span id="dTheme"></span></div>
+  <div class="field"><b>被引次数</b><span id="dDegree"></span></div>
+  <div class="status-row" id="dStatusRow"></div>
+  <div class="field"><b>我的笔记</b></div>
+  <textarea id="dNotes" placeholder="记录你的阅读心得…"></textarea>
+  <div class="actions">
+    <button id="btnSaveNote">💾 保存笔记</button>
+  </div>
+  <div class="related" id="dRelated"></div>
+</div>
+
+<div id="qa">
+  <div class="qa-head"><span>💬 基于本地语料的智能问答</span><button class="close" id="qaClose" style="background:none;border:none;color:var(--dim);cursor:pointer">✕</button></div>
+  <div class="qa-body" id="qaBody">输入问题，我将检索本地论文并基于内容回答（需 Ollama 运行）。</div>
+  <div class="qa-input">
+    <input id="qaInput" type="text" placeholder="例如：陶器类型学的研究方法是什么？" autocomplete="off">
+    <button id="qaSend">发送</button>
+  </div>
+</div>
+
+<div id="empty">
+  <div class="box">
+    <h2>📭 语料库为空</h2>
+    <p>请将考古学论文（PDF/DOCX/TXT）放入 data/papers/ 目录，然后点击下方按钮入库。</p>
+    <button id="btnIngest">⚡ 扫描并入库</button>
+  </div>
+</div>
+
+<!-- AI 调研工作台（多智能体文献调研） -->
+<div id="research">
+  <div class="r-head">
+    <span>🤖 AI 文献调研工作台</span>
+    <button class="close" id="researchClose">✕</button>
+  </div>
+  <div class="r-body">
+    <div class="r-create">
+      <input id="rTopic" type="text" placeholder="输入研究主题，例如：新石器时代陶器类型学研究" autocomplete="off">
+      <button id="rStart">🚀 开始调研</button>
+      <button id="rRefresh" title="刷新任务列表">🔄</button>
+    </div>
+    <div class="r-hint" id="rHint">输入主题后，五步智能体流水线自动执行：检索规划 → 摘要阅读 → 分层分析 → 大纲生成 → 综述写作（需 Ollama 本地模型）</div>
+    <div id="rTasks"></div>
+  </div>
+  <div class="r-detail" id="rDetail">
+    <div class="r-detail-head" id="rDetailHead"></div>
+    <div class="r-progress" id="rProgress"></div>
+    <div class="r-output" id="rOutput"></div>
+  </div>
+</div>
+
+<div id="status"></div>
+
+<script>
+/* =========================================================
+ * 自包含 3D 力导向论文关系图（零外部依赖）
+ * 三阶段：静态散点+轨道相机 → 力导向布局 → 拾取交互
+ * ========================================================= */
+"use strict";
+
+const canvas = document.getElementById("canvas");
+const ctx = canvas.getContext("2d");
+let W = 0, H = 0, DPR = 1;
+
+// ---------- 全局状态 ----------
+let graph = { nodes: [], edges: [] };
+let positions = new Map();   // nodeId -> {x,y,z}
+let nodeScreen = new Map();  // nodeId -> {x,y,r} 每帧更新（拾取用）
+let selectedId = null;
+let hoverId = null;
+let searchQuery = "";
+let qaVisible = false;
+let detailVisible = false;
+let themeColors = {};
+let isOnline = false;
+
+// ---------- 相机（轨道） ----------
+const camera = { theta: 0.6, phi: 0.9, dist: 380, target: {x:0,y:0,z:0} };
+
+// ---------- 力导向参数 ----------
+const FORCE = { repulsion: 2600, attraction: 0.02, maxStep: 2.0, iterations: 300 };
+
+// ---------- 工具 ----------
+function $(id) { return document.getElementById(id); }
+function setStatus(msg) { $("status").textContent = msg; }
+function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
+
+function resize() {
+  DPR = window.devicePixelRatio || 1;
+  W = window.innerWidth; H = window.innerHeight;
+  canvas.width = W * DPR; canvas.height = H * DPR;
+  canvas.style.width = W + "px"; canvas.style.height = H + "px";
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+}
+window.addEventListener("resize", resize);
+
+// ---------- 主题配色 ----------
+function assignThemeColors() {
+  const palette = ["#58a6ff","#ff6b6b","#feca57","#4ecdc4","#a29bfe",
+                   "#fd79a8","#00b894","#e17055","#74b9ff","#d63031",
+                   "#6c5ce7","#00cec9"];
+  const themes = [...new Set(graph.nodes.map(n => n.theme || "未分类"))];
+  themes.forEach((t, i) => themeColors[t] = palette[i % palette.length]);
+}
+
+// ---------- 3D 数学 ----------
+function rotate3D(x, y, z) {
+  // 绕 Y 轴
+  const cy = Math.cos(camera.theta), sy = Math.sin(camera.theta);
+  let x1 = x * cy + z * sy, z1 = -x * sy + z * cy;
+  // 绕 X 轴
+  const cx = Math.cos(camera.phi), sx = Math.sin(camera.phi);
+  let y1 = y * cx - z1 * sx, z2 = y * sx + z1 * cx;
+  return { x: x1, y: y1, z: z2 };
+}
+function project(x, y, z) {
+  const r = rotate3D(x - camera.target.x, y - camera.target.y, z - camera.target.z);
+  const fov = 600;
+  const scale = fov / (fov + r.z + camera.dist);
+  return { x: W/2 + r.x * scale, y: H/2 - r.y * scale, z: r.z, scale: scale };
+}
+
+// ---------- 力导向布局 ----------
+function initPositions() {
+  positions = new Map();
+  graph.nodes.forEach((n, i) => {
+    // 球面随机分布（确定性种子避免每次不同）
+    const t = (i * 2.399963) % (Math.PI * 2);
+    const p = Math.acos(1 - 2 * ((i * 0.618034) % 1));
+    const rad = 120;
+    positions.set(n.id, {
+      x: rad * Math.sin(p) * Math.cos(t),
+      y: rad * Math.sin(p) * Math.sin(t),
+      z: rad * Math.cos(p)
+    });
+  });
+}
+
+function forceLayout(iterations) {
+  const ids = graph.nodes.map(n => n.id);
+  const pos = new Map(positions);
+  const adj = new Map();  // 邻居列表
+  graph.edges.forEach(e => {
+    if (!adj.has(e.source)) adj.set(e.source, []);
+    if (!adj.has(e.target)) adj.set(e.target, []);
+    adj.get(e.source).push(e.target);
+    adj.get(e.target).push(e.source);
+  });
+  const rep = FORCE.repulsion;
+  for (let iter = 0; iter < iterations; iter++) {
+    const forces = new Map();
+    ids.forEach(id => forces.set(id, {x:0,y:0,z:0}));
+    // 斥力（O(N²) 简化：仅对邻近节点）
+    for (let i = 0; i < ids.length; i++) {
+      for (let j = i+1; j < ids.length; j++) {
+        const a = pos.get(ids[i]), b = pos.get(ids[j]);
+        let dx = a.x - b.x, dy = a.y - b.y, dz = a.z - b.z;
+        let d2 = dx*dx + dy*dy + dz*dz;
+        if (d2 < 1) { d2 = 1; }
+        const d = Math.sqrt(d2);
+        if (d > 400) continue;
+        const f = rep / d2;
+        const fx = dx/d * f, fy = dy/d * f, fz = dz/d * f;
+        forces.get(ids[i]).x += fx; forces.get(ids[i]).y += fy; forces.get(ids[i]).z += fz;
+        forces.get(ids[j]).x -= fx; forces.get(ids[j]).y -= fy; forces.get(ids[j]).z -= fz;
+      }
+    }
+    // 弹簧引力
+    graph.edges.forEach(e => {
+      const a = pos.get(e.source), b = pos.get(e.target);
+      if (!a || !b) return;
+      const dx = b.x - a.x, dy = b.y - a.y, dz = b.z - a.z;
+      const f = FORCE.attraction * (1 - e.weight);
+      forces.get(e.source).x += dx*f; forces.get(e.source).y += dy*f; forces.get(e.source).z += dz*f;
+      forces.get(e.target).x -= dx*f; forces.get(e.target).y -= dy*f; forces.get(e.target).z -= dz*f;
+    });
+    // 应用力（带步长限制）
+    ids.forEach(id => {
+      const p = pos.get(id), f = forces.get(id);
+      const m = Math.sqrt(f.x*f.x + f.y*f.y + f.z*f.z);
+      if (m < 1e-6) return;
+      const step = Math.min(FORCE.maxStep, m * 0.02);
+      p.x += f.x/m * step; p.y += f.y/m * step; p.z += f.z/m * step;
+    });
+  }
+  positions = pos;
+}
+
+// ---------- 渲染 ----------
+function nodeRadius(node) {
+  const base = 6;
+  const deg = node.degree || 0;
+  return base + Math.min(10, deg * 1.2);
+}
+
+function draw() {
+  ctx.clearRect(0, 0, W, H);
+  // 背景渐变
+  const grad = ctx.createRadialGradient(W/2, H/2, 0, W/2, H/2, Math.max(W,H)*0.7);
+  grad.addColorStop(0, "#161b22"); grad.addColorStop(1, "#0d1117");
+  ctx.fillStyle = grad; ctx.fillRect(0, 0, W, H);
+
+  nodeScreen = new Map();
+
+  // 1. 绘制边（先画，节点覆盖其上）
+  const edgeColor = { similar: "rgba(88,166,255,0.35)", citation: "rgba(254,202,87,0.3)" };
+  graph.edges.forEach(e => {
+    const a = positions.get(e.source), b = positions.get(e.target);
+    if (!a || !b) return;
+    const pa = project(a.x, a.y, a.z), pb = project(b.x, b.y, b.z);
+    ctx.strokeStyle = edgeColor[e.type] || "rgba(139,148,158,0.3)";
+    ctx.lineWidth = Math.min(2.5, 0.5 + (e.weight || 0.5) * 2) * pa.scale;
+    ctx.beginPath(); ctx.moveTo(pa.x, pa.y); ctx.lineTo(pb.x, pb.y); ctx.stroke();
+  });
+
+  // 2. 节点排序（深度）后绘制
+  const nodeList = graph.nodes.map(n => ({ n, p: project(positions.get(n.id).x, positions.get(n.id).y, positions.get(n.id).z) }));
+  nodeList.sort((a, b) => a.p.z - b.p.z);
+
+  nodeList.forEach(({ n, p }) => {
+    const r = nodeRadius(n) * p.scale;
+    nodeScreen.set(n.id, { x: p.x, y: p.y, r: r, z: p.z });
+    const theme = n.theme || "未分类";
+    const color = themeColors[theme] || "#8b949e";
+    const isSel = selectedId === n.id;
+    const isHov = hoverId === n.id;
+    const matched = searchQuery && (n.title || "").toLowerCase().includes(searchQuery.toLowerCase());
+
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+    ctx.fillStyle = color;
+    ctx.globalAlpha = 0.85;
+    ctx.fill();
+    ctx.globalAlpha = 1;
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = isSel ? "#fff" : (isHov ? "#fff" : "rgba(255,255,255,0.25)");
+    ctx.stroke();
+    if (matched) {
+      ctx.beginPath(); ctx.arc(p.x, p.y, r + 5, 0, Math.PI * 2);
+      ctx.strokeStyle = "#f85149"; ctx.lineWidth = 2; ctx.stroke();
+    }
+    // 标题标签
+    if (p.scale > 0.55 || isSel || isHov || matched) {
+      ctx.font = "12px 'Microsoft YaHei'";
+      ctx.fillStyle = "rgba(230,237,243,0.9)";
+      ctx.textAlign = "center";
+      const label = (n.title || "").length > 14 ? (n.title || "").slice(0, 14) + "…" : (n.title || "");
+      ctx.fillText(label, p.x, p.y - r - 4);
+    }
+  });
+
+  // 搜索聚焦标记
+  if (searchQuery) {
+    ctx.font = "12px 'Microsoft YaHei'"; ctx.fillStyle = "rgba(248,81,73,0.8)"; ctx.textAlign = "left";
+    ctx.fillText(`搜索: "${searchQuery}"`, 14, 60);
+  }
+}
+
+// ---------- 拾取 ----------
+function pickNode(mx, my) {
+  let best = null, bestDist = Infinity;
+  nodeScreen.forEach((s, id) => {
+    const dx = mx - s.x, dy = my - s.y;
+    const d = Math.sqrt(dx*dx + dy*dy);
+    if (d <= s.r + 6 && d < bestDist) { bestDist = d; best = id; }
+  });
+  return best;
+}
+
+// ---------- 交互 ----------
+let dragState = null;
+canvas.addEventListener("mousedown", e => {
+  const rect = canvas.getBoundingClientRect();
+  const mx = e.clientX - rect.left, my = e.clientY - rect.top;
+  const id = pickNode(mx, my);
+  if (id !== null) {
+    selectNode(id);
+    dragState = { type: "select", x: e.clientX, y: e.clientY, moved: false };
+  } else {
+    dragState = { type: "orbit", x: e.clientX, y: e.clientY, moved: false };
+    canvas.classList.add("dragging");
+  }
+});
+window.addEventListener("mousemove", e => {
+  if (!dragState) return;
+  const dx = e.clientX - dragState.x, dy = e.clientY - dragState.y;
+  if (Math.abs(dx) + Math.abs(dy) > 3) dragState.moved = true;
+  if (dragState.type === "orbit" && dragState.moved) {
+    camera.theta += dx * 0.006;
+    camera.phi = clamp(camera.phi + dy * 0.006, 0.1, Math.PI - 0.1);
+    dragState.x = e.clientX; dragState.y = e.clientY;
+    requestAnimationFrame(draw);
+  }
+});
+window.addEventListener("mouseup", () => { dragState = null; canvas.classList.remove("dragging"); });
+canvas.addEventListener("mousemove", e => {
+  const rect = canvas.getBoundingClientRect();
+  const id = pickNode(e.clientX - rect.left, e.clientY - rect.top);
+  if (id !== hoverId) {
+    hoverId = id;
+    canvas.style.cursor = id !== null ? "pointer" : "grab";
+    requestAnimationFrame(draw);
+  }
+});
+canvas.addEventListener("mouseleave", () => { hoverId = null; requestAnimationFrame(draw); });
+canvas.addEventListener("wheel", e => {
+  e.preventDefault();
+  camera.dist = clamp(camera.dist + e.deltaY * 0.5, 80, 1600);
+  requestAnimationFrame(draw);
+}, { passive: false });
+
+// 触摸支持（简化）
+let touchState = null;
+canvas.addEventListener("touchstart", e => {
+  if (e.touches.length === 1) {
+    const t = e.touches[0];
+    touchState = { x: t.clientX, y: t.clientY };
+  }
+}, { passive: true });
+canvas.addEventListener("touchmove", e => {
+  if (touchState && e.touches.length === 1) {
+    const t = e.touches[0];
+    camera.theta += (t.clientX - touchState.x) * 0.006;
+    camera.phi = clamp(camera.phi + (t.clientY - touchState.y) * 0.006, 0.1, Math.PI - 0.1);
+    touchState = { x: t.clientX, y: t.clientY };
+    requestAnimationFrame(draw);
+  }
+}, { passive: true });
+
+// ---------- 详情面板 ----------
+function renderStatusRow(node) {
+  const row = $("dStatusRow");
+  row.innerHTML = "";
+  ["未读","在读","已读","重点"].forEach(s => {
+    const b = document.createElement("button");
+    b.textContent = s;
+    if (node.status === s) b.classList.add("active");
+    b.onclick = () => {
+      const status = s;
+      if (isOnline) {
+        fetch(`/api/papers/${node.id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ status })
+        }).then(r => r.json()).then(() => {
+          node.status = status; renderStatusRow(node);
+          setStatus("状态已更新");
+        }).catch(() => setStatus("保存失败（离线模式仅本地显示）"));
+      } else {
+        node.status = status; renderStatusRow(node); setStatus("离线模式：状态未持久化");
+      }
+    };
+    row.appendChild(b);
+  });
+}
+
+function selectNode(id) {
+  selectedId = id;
+  const node = graph.nodes.find(n => n.id === id);
+  if (!node) return;
+  detailVisible = true;
+  $("detail").style.display = "block";
+  $("dTitle").textContent = node.title || "(未命名)";
+  $("dSub").textContent = [node.authors, node.year].filter(Boolean).join(" · ");
+  $("dKeywords").textContent = node.keywords || "—";
+  $("dSummary").textContent = node.summary || "（暂无摘要，可入库时由 LLM 生成）";
+  $("dTheme").textContent = node.theme || "—";
+  $("dDegree").textContent = node.degree || 0;
+  $("dNotes").value = node.notes || "";
+  renderStatusRow(node);
+  // 相关论文
+  const rel = $("dRelated");
+  rel.innerHTML = "<b style='color:var(--dim);font-size:12px'>关联论文</b>";
+  graph.edges.forEach(e => {
+    let other = null, type = null;
+    if (e.source === id) { other = graph.nodes.find(n => n.id === e.target); type = e.type; }
+    else if (e.target === id) { other = graph.nodes.find(n => n.id === e.source); type = e.type; }
+    if (other) {
+      const d = document.createElement("div");
+      d.textContent = `${type === "citation" ? "📖 引用" : "🔗 相似"} · ${other.title || "(未命名)"}`;
+      d.onclick = () => selectNode(other.id);
+      rel.appendChild(d);
+    }
+  });
+  requestAnimationFrame(draw);
+}
+
+$("detailClose").onclick = () => { detailVisible = false; selectedId = null; $("detail").style.display = "none"; requestAnimationFrame(draw); };
+$("btnSaveNote").onclick = () => {
+  if (!selectedId) return;
+  const notes = $("dNotes").value;
+  const node = graph.nodes.find(n => n.id === selectedId);
+  if (isOnline) {
+    fetch(`/api/papers/${selectedId}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ notes })
+    }).then(r => r.json()).then(() => { node.notes = notes; setStatus("💾 笔记已保存"); })
+      .catch(() => setStatus("保存失败"));
+  } else {
+    node.notes = notes; setStatus("离线模式：笔记未持久化");
+  }
+};
+
+// ---------- 搜索 ----------
+$("searchBox").addEventListener("input", e => {
+  searchQuery = e.target.value.trim();
+  requestAnimationFrame(draw);
+});
+$("searchBox").addEventListener("keydown", e => {
+  if (e.key === "Enter" && searchQuery) {
+    const hit = graph.nodes.find(n => (n.title || "").toLowerCase().includes(searchQuery.toLowerCase()));
+    if (hit) selectNode(hit.id);
+  }
+});
+
+// ---------- 问答 ----------
+$("btnQA").onclick = () => { qaVisible = !qaVisible; $("qa").style.display = qaVisible ? "block" : "none"; };
+$("qaClose").onclick = () => { qaVisible = false; $("qa").style.display = "none"; };
+$("qaSend").onclick = sendQuestion;
+$("qaInput").addEventListener("keydown", e => { if (e.key === "Enter") sendQuestion(); });
+function sendQuestion() {
+  const q = $("qaInput").value.trim();
+  if (!q) return;
+  const body = $("qaBody");
+  body.textContent = "";
+  $("qa").classList.add("loading");
+  fetch("/api/query", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ question: q })
+  }).then(r => r.json()).then(d => {
+    if (d.error) {
+      body.textContent = "⚠️ " + d.error;
+    } else {
+      body.textContent = d.answer || "(无回答)";
+      if (d.sources && d.sources.length) {
+        body.textContent += "\n\n📚 依据：" + d.sources.map(s => s.title).join("、");
+      }
+    }
+  }).catch(() => { body.textContent = "请求失败"; })
+    .finally(() => $("qa").classList.remove("loading"));
+}
+
+// ---------- 数据加载 ----------
+function loadGraphData(data) {
+  graph = data;
+  $("nodeCount").textContent = `（${graph.nodes.length} 篇论文 · ${graph.edges.length} 条关系）`;
+  assignThemeColors();
+  initPositions();
+  forceLayout(FORCE.iterations);
+  draw();
+  if (graph.nodes.length === 0) {
+    $("empty").style.display = "flex";
+  } else {
+    $("empty").style.display = "none";
+  }
+  setStatus(isOnline ? "在线模式 · 已加载" : "离线模式 · 加载本地 graph.json");
+}
+
+function loadFromApi() {
+  fetch("/api/graph")
+    .then(r => { if (!r.ok) throw new Error("http " + r.status); return r.json(); })
+    .then(d => { isOnline = true; loadGraphData(d); loadModels(); })
+    .catch(() => { isOnline = false; loadLocal(); });
+}
+
+function loadLocal() {
+  fetch("graph.json")
+    .then(r => { if (!r.ok) throw new Error("no local graph"); return r.json(); })
+    .then(d => loadGraphData(d))
+    .catch(() => {
+      setStatus("无法加载数据：请先运行 ingest 与 build-graph，或启动服务");
+      $("empty").style.display = "flex";
+    });
+}
+
+// ---------- 模型选择 ----------
+function loadModels() {
+  const sel = $("modelSelect");
+  if (!isOnline) return;
+  fetch("/api/models")
+    .then(r => r.json())
+    .then(d => {
+      sel.innerHTML = "";
+      if (!d.models || !d.models.length) {
+        const opt = document.createElement("option");
+        opt.textContent = "（Ollama 无模型）";
+        opt.value = "";
+        sel.appendChild(opt);
+        return;
+      }
+      d.models.forEach(m => {
+        const opt = document.createElement("option");
+        opt.value = m.name;
+        opt.textContent = m.name + (m.size_GB ? ` (${m.size_GB}GB)` : "");
+        if (m.name === d.current) opt.selected = true;
+        sel.appendChild(opt);
+      });
+      if (d.current && !d.models.some(m => m.name === d.current)) {
+        const cur = document.createElement("option");
+        cur.value = d.current; cur.textContent = d.current + "（已配置，未安装）";
+        cur.selected = true;
+        sel.insertBefore(cur, sel.firstChild);
+      }
+    })
+    .catch(() => { sel.innerHTML = '<option value="">模型列表不可用</option>'; });
+}
+
+$("modelSelect").addEventListener("change", e => {
+  const model = e.target.value;
+  if (!model) return;
+  e.target.disabled = true;
+  setStatus(`⏳ 切换模型到 ${model}…`);
+  fetch("/api/model", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ model })
+  }).then(r => r.json()).then(d => {
+    if (d.ok) {
+      setStatus(`✅ 已切换模型：${model}（后续问答/入库生效）`);
+    } else {
+      setStatus("⚠️ 切换失败: " + (d.error || "未知错误"));
+    }
+  }).catch(() => setStatus("⚠️ 切换模型失败（网络错误）"))
+    .finally(() => { e.target.disabled = false; });
+});
+
+// ---------- 工具栏按钮 ----------
+$("btnRelayout").onclick = () => { initPositions(); forceLayout(FORCE.iterations); draw(); setStatus("布局已重新计算"); };
+$("btnRefresh").onclick = () => { setStatus("刷新中…"); if (isOnline) { loadModels(); loadFromApi(); } else loadLocal(); };
+$("btnIngest").onclick = () => {
+  setStatus("⏳ 入库中（解析 + LLM 元数据，可能需要几分钟）…");
+  fetch("/api/ingest", { method: "POST" })
+    .then(r => r.json())
+    .then(d => {
+      setStatus(`✅ 入库完成：新增 ${d.added}，重复 ${d.duplicates}${d.failed.length ? "，失败 " + d.failed.length : ""}`);
+      loadFromApi();
+    })
+    .catch(() => setStatus("入库失败：请确认服务已启动且 Ollama 可用"));
+};
+
+// ---------- AI 调研工作台 ----------
+let researchVisible = false;
+let researchES = null;      // 当前 EventSource
+let currentRunId = null;
+
+$("btnResearch").onclick = () => { toggleResearch(true); };
+$("researchClose").onclick = () => { toggleResearch(false); };
+
+function toggleResearch(show) {
+  researchVisible = show;
+  $("research").style.display = show ? "block" : "none";
+  if (show) loadResearchTasks();
+  else closeResearchStream();
+}
+
+$("rStart").onclick = startResearch;
+$("rTopic").addEventListener("keydown", e => { if (e.key === "Enter") startResearch(); });
+$("rRefresh").onclick = loadResearchTasks;
+
+function startResearch() {
+  const topic = $("rTopic").value.trim();
+  if (!topic) { setStatus("请输入研究主题"); return; }
+  $("rStart").disabled = true;
+  setStatus("⏳ 创建调研任务…");
+  fetch("/api/research", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ topic, max_results: 6 })
+  }).then(r => r.json()).then(d => {
+    if (d.error) { setStatus("⚠️ " + d.error); return; }
+    setStatus(`✅ 任务已创建：${d.topic}`);
+    $("rTopic").value = "";
+    loadResearchTasks();
+    openTaskDetail(d.run_id);
+  }).catch(() => setStatus("创建任务失败")).finally(() => { $("rStart").disabled = false; });
+}
+
+function loadResearchTasks() {
+  fetch("/api/research")
+    .then(r => r.json())
+    .then(d => renderTaskList(d.tasks || []))
+    .catch(() => {});
+}
+
+function renderTaskList(tasks) {
+  const box = $("rTasks");
+  if (!tasks.length) {
+    box.innerHTML = '<div class="r-hint">暂无调研任务。输入主题开始第一次调研吧。</div>';
+    return;
+  }
+  box.innerHTML = "";
+  tasks.forEach(t => {
+    const el = document.createElement("div");
+    el.className = "r-task";
+    const time = new Date(t.created_at * 1000).toLocaleString();
+    el.innerHTML = `
+      <div class="t-title">${escapeHtml(t.topic)}</div>
+      <div class="t-meta">
+        <span>${t.run_id}</span><span>${time}</span>
+        <span class="t-status ${t.status}">${statusLabel(t.status)}</span>
+        <span>${t.event_count} 事件</span>
+      </div>`;
+    el.onclick = () => openTaskDetail(t.run_id);
+    box.appendChild(el);
+  });
+}
+
+function statusLabel(s) {
+  return { pending: "排队中", running: "运行中", done: "已完成",
+           error: "出错", cancelled: "已取消" }[s] || s;
+}
+
+function openTaskDetail(runId) {
+  currentRunId = runId;
+  $("rDetail").style.display = "block";
+  $("rDetailHead").innerHTML = `<h3>调研任务 ${runId}</h3>
+    <button onclick="closeTaskDetail()">← 返回列表</button>
+    <button onclick="location.reload()">刷新</button>`;
+  $("rProgress").innerHTML = "";
+  $("rOutput").innerHTML = '<div class="r-hint">⏳ 等待任务事件…</div>';
+  // 立即拉一次任务详情（含已完成事件）
+  fetch(`/api/research/${runId}`)
+    .then(r => r.json())
+    .then(d => { renderEvents(d.events || []); })
+    .catch(() => {});
+  openResearchStream(runId);
+}
+
+function closeTaskDetail() {
+  closeResearchStream();
+  $("rDetail").style.display = "none";
+  loadResearchTasks();
+}
+
+function closeResearchStream() {
+  if (researchES) { researchES.close(); researchES = null; }
+}
+
+function openResearchStream(runId) {
+  closeResearchStream();
+  const es = new EventSource(`/api/research/${runId}/events`);
+  researchES = es;
+  es.onmessage = (e) => {
+    try { renderEvents([JSON.parse(e.data)]); } catch (_) {}
+  };
+  es.onerror = () => { /* 连接中断：任务可能已结束，稍后重试 */ };
+}
+
+function renderEvents(events) {
+  // 渲染进度步骤
+  const steps = [
+    ["search", "🔍 检索规划与本地检索"],
+    ["read", "📖 摘要阅读与相关性判断"],
+    ["analyse", "🔬 分层分析"],
+    ["writing_outline", "✍️ 大纲生成"],
+    ["writing", "📝 综述写作"],
+  ];
+  const state = {};   // stage -> status
+  let lastMsg = {};
+  events.forEach(ev => {
+    if (ev.type === "stage" && ev.stage) {
+      if (ev.status === "started") state[ev.stage] = "active";
+      else if (ev.status === "done") state[ev.stage] = "done";
+      else if (ev.status === "error" || ev.status === "cancelled") state[ev.stage] = "error";
+      lastMsg[ev.stage] = ev.message;
+    } else if (ev.type === "progress" && ev.stage) {
+      lastMsg[ev.stage] = ev.message;
+    }
+  });
+  const prog = $("rProgress");
+  prog.innerHTML = steps.map(([k, label]) => {
+    const s = state[k] || "wait";
+    return `<div class="r-step ${s === "done" ? "done" : (s === "active" ? "active" : (s === "error" ? "error" : ""))}">
+      <span class="dot"></span><span>${label}</span>
+      ${lastMsg[k] ? `<span class="msg">${escapeHtml(lastMsg[k])}</span>` : ""}
+    </div>`;
+  }).join("");
+
+  // 任务结束后加载最终产物
+  const doneEv = events.find(ev => ev.type === "stage" && ev.stage === "done");
+  if (doneEv) {
+    loadResearchResult();
+  }
+}
+
+function loadResearchResult() {
+  if (!currentRunId) return;
+  fetch(`/api/research/${currentRunId}/result`)
+    .then(r => r.json())
+    .then(d => renderResearchResult(d))
+    .catch(() => {});
+}
+
+function renderResearchResult(d) {
+  const out = $("rOutput");
+  let html = "";
+  const fr = d.final_report || {};
+  const ar = d.analysis_report || {};
+
+  if (fr.abstract) {
+    html += `<h4>📄 综述摘要</h4><pre>${escapeHtml(fr.abstract)}</pre>`;
+  }
+  const secs = fr.sections || [];
+  if (secs.length) {
+    html += `<h4>📝 综述正文（${secs.length} 节）</h4>`;
+    secs.forEach(s => {
+      html += `<div class="sec"><h5>${escapeHtml(s.chapter || "")} · ${escapeHtml(s.title || "")}</h5>
+        <p>${escapeHtml(s.content || "（本节写作失败或为空）")}</p></div>`;
+    });
+  }
+  const srs = d.search_results || [];
+  if (srs.length) {
+    html += `<h4>🔍 检索到 ${srs.length} 篇相关论文</h4><div class="r-papers">`;
+    srs.forEach(p => {
+      html += `<div class="r-paper">${escapeHtml(p.title || p.filename || "")}（${escapeHtml(p.year || "?")}）</div>`;
+    });
+    html += `</div>`;
+  }
+  const oa = ar.overall_analysis || {};
+  const oaKeys = Object.keys(oa);
+  if (oaKeys.length) {
+    html += `<h4>🔬 全局分析（${oaKeys.length} 个维度）</h4>`;
+    oaKeys.forEach(k => {
+      html += `<div class="sec"><h5>${escapeHtml(k)}</h5><p>${escapeHtml(oa[k] || "证据不足")}</p></div>`;
+    });
+  }
+  if (!html) html = '<div class="r-hint">任务尚未产生产物（可能失败或语料为空）。</div>';
+  out.innerHTML = html;
+}
+
+function escapeHtml(s) {
+  return String(s == null ? "" : s).replace(/[&<>"']/g, c => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+  }[c]));
+}
+
+// ---------- 启动 ----------
+resize();
+loadFromApi();
+// 动画循环（低负载）
+setInterval(() => { if (hoverId !== null) requestAnimationFrame(draw); }, 300);
+</script>
+</body>
+</html>
